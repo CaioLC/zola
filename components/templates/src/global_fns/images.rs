@@ -1,10 +1,16 @@
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::BufWriter;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use libs::image::imageops::grayscale;
+use libs::image::{self};
+use libs::serde_json::json;
 use libs::tera::{from_value, to_value, Function as TeraFn, Result, Value};
 
 use crate::global_fns::helpers::search_for_file;
+
 
 #[derive(Debug)]
 pub struct ResizeImage {
@@ -74,7 +80,7 @@ impl TeraFn for ResizeImage {
             };
 
         let response = imageproc
-            .enqueue(resize_op, unified_path, file_path, &format, quality)
+            .enqueue(imageproc::ImageOperation::Resize(resize_op), unified_path, file_path, &format, quality)
             .map_err(|e| format!("`resize_image`: {}", e))?;
 
         to_value(response).map_err(Into::into)
@@ -134,6 +140,52 @@ impl TeraFn for GetImageMetadata {
         cache.insert(unified_path, out.clone());
 
         Ok(out)
+    }
+}
+
+pub struct Noir {
+    /// The base path of the Zola site
+    ///
+    base_path: PathBuf,
+    theme: Option<String>,
+    imageproc: Arc<Mutex<imageproc::Processor>>,
+    output_path: PathBuf,
+}
+impl Noir {
+    pub fn new(base_path: PathBuf,
+        imageproc: Arc<Mutex<imageproc::Processor>>,
+        theme: Option<String>, output_path: PathBuf) -> Self {
+        Self { base_path, theme, imageproc, output_path }
+    }
+}
+impl TeraFn for Noir {
+    fn call(&self, args: &HashMap<String, Value>) -> Result<Value> {
+        let path = required_arg!(
+            String,
+            args.get("path"),
+            "`noir` requires a `path` argument with a string value"
+        );
+
+        let noir_op = imageproc::NoirOperation::Simple;
+        let mut imageproc = self.imageproc.lock().unwrap();
+        let (file_path, unified_path) =
+            match search_for_file(&self.base_path, &path, &self.theme, &self.output_path)
+                .map_err(|e| format!("`noir`: {}", e))?
+            {
+                Some((f, p)) => (f, p),
+                None => {
+                    return Err(format!("`noir`: Cannot find path: {}", path).into());
+                }
+            };
+
+        // we begin here
+        let response = imageproc
+            .enqueue(imageproc::ImageOperation::Noir(noir_op), unified_path, file_path, DEFAULT_FMT, None)
+            .map_err(|e| format!("`resize_image`: {}", e))?;
+
+        to_value(response).map_err(Into::into)
+
+
     }
 }
 

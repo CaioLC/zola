@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 
 use crate::format::Format;
-use crate::ResizeOperation;
+use crate::ops::ImageOperation;
 use libs::image::DynamicImage;
 
 /// Apply image rotation based on EXIF data
@@ -38,7 +38,7 @@ pub fn fix_orientation(img: &DynamicImage, path: &Path) -> Option<DynamicImage> 
 pub fn get_processed_filename(
     input_path: &Path,
     input_src: &str,
-    op: &ResizeOperation,
+    op: &ImageOperation,
     format: &Format,
 ) -> String {
     let mut hasher = DefaultHasher::new();

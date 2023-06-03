@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use config::Config;
 use errors::{anyhow, Context, Result};
 use libs::ahash::{HashMap, HashSet};
-use libs::image::imageops::FilterType;
+use libs::image::imageops::{FilterType, grayscale};
 use libs::image::{EncodableLayout, ImageOutputFormat};
 use libs::rayon::prelude::*;
 use libs::{image, webp};
@@ -15,16 +15,18 @@ use utils::fs as ufs;
 
 use crate::format::Format;
 use crate::helpers::get_processed_filename;
-use crate::{fix_orientation, ImageMeta, ResizeInstructions, ResizeOperation};
+use crate::{fix_orientation, ImageMeta, ResizeInstructions, NoirInstructions, ImageInstr, ImageOperation};
 
 pub static RESIZED_SUBDIR: &str = "processed_images";
+
+
 
 /// Holds all data needed to perform a resize operation
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct ImageOp {
     input_path: PathBuf,
     output_path: PathBuf,
-    instr: ResizeInstructions,
+    instr: ImageInstr,
     format: Format,
     /// Whether we actually want to perform that op.
     /// In practice we set it to true if the output file already
@@ -39,18 +41,23 @@ impl ImageOp {
         }
 
         let mut img = image::open(&self.input_path)?;
-
-        let img = match self.instr.crop_instruction {
-            Some((x, y, w, h)) => img.crop(x, y, w, h),
-            None => img,
-        };
-        let img = match self.instr.resize_instruction {
-            Some((w, h)) => img.resize_exact(w, h, FilterType::Lanczos3),
-            None => img,
-        };
-
-        let img = fix_orientation(&img, &self.input_path).unwrap_or(img);
-
+        
+        match &self.instr {
+            ImageInstr::Resize(instr) => {
+                img = match instr.crop_instruction {
+                    Some((x, y, w, h)) => img.crop(x, y, w, h),
+                    None => img,
+                };
+                img = match instr.resize_instruction {
+                    Some((w, h)) => img.resize_exact(w, h, FilterType::Lanczos3),
+                    None => img,
+                };
+                img = fix_orientation(&img, &self.input_path).unwrap_or(img);
+            }    
+            ImageInstr::Noir(_) => {
+                img = grayscale(&img).into();
+            }
+        }    
         let f = File::create(&self.output_path)?;
         let mut buffered_f = BufWriter::new(f);
 
@@ -71,7 +78,6 @@ impl ImageOp {
                 buffered_f.write_all(memory.as_bytes())?;
             }
         }
-
         Ok(())
     }
 }
@@ -97,10 +103,13 @@ impl EnqueueResponse {
         url: String,
         static_path: PathBuf,
         meta: &ImageMeta,
-        instr: &ResizeInstructions,
+        instr: &ImageInstr,
     ) -> Self {
         let static_path = static_path.to_string_lossy().into_owned();
-        let (width, height) = instr.resize_instruction.unwrap_or(meta.size);
+        let (width, height) = match instr {
+            ImageInstr::Resize(rz) => rz.resize_instruction.unwrap_or(meta.size),
+            ImageInstr::Noir(_) => meta.size,
+        }; 
         let (orig_width, orig_height) = meta.size;
 
         Self { url, static_path, width, height, orig_width, orig_height }
@@ -139,7 +148,7 @@ impl Processor {
 
     pub fn enqueue(
         &mut self,
-        op: ResizeOperation,
+        op: ImageOperation,
         input_src: String,
         input_path: PathBuf,
         format: &str,
@@ -160,7 +169,12 @@ impl Processor {
         let url = format!("{}{}", self.base_url, filename);
         let static_path = Path::new("static").join(RESIZED_SUBDIR).join(&filename);
         let output_path = self.output_dir.join(&filename);
-        let instr = ResizeInstructions::new(op, meta.size);
+        let instr = match op {
+            ImageOperation::Resize(op) =>{
+                ImageInstr::Resize(ResizeInstructions::new(op, meta.size))
+            }
+            ImageOperation::Noir(_) => ImageInstr::Noir(NoirInstructions::new())
+        }; 
         let enqueue_response = EnqueueResponse::new(url, static_path, meta, &instr);
         let img_op = ImageOp {
             ignore: output_path.exists() && !ufs::file_stale(&input_path, &output_path),

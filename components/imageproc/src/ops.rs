@@ -1,5 +1,17 @@
 use errors::{anyhow, Result};
 
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum ImageOperation {
+    Resize(ResizeOperation),
+    Noir(NoirOperation),
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum ImageInstr {
+    Resize(ResizeInstructions),
+    Noir(NoirInstructions),
+}
+
 /// De-serialized & sanitized arguments of `resize_image`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResizeOperation {
@@ -55,6 +67,21 @@ impl ResizeOperation {
             _ => unreachable!(),
         })
     }
+}
+/// Contains image crop/resize instructions for use by `Processor`
+///
+/// The `Processor` applies `crop` first, if any, and then `resize`, if any.
+#[derive(Clone, PartialEq, Eq, Hash, Default, Debug)]
+pub struct NoirInstructions;
+impl NoirInstructions {
+    pub fn new() -> Self {
+        NoirInstructions
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Default, Debug)]
+pub enum NoirOperation {
+    #[default] Simple
 }
 
 /// Contains image crop/resize instructions for use by `Processor`
