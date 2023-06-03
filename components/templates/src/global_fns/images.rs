@@ -1,12 +1,7 @@
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::BufWriter;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use libs::image::imageops::grayscale;
-use libs::image::{self};
-use libs::serde_json::json;
 use libs::tera::{from_value, to_value, Function as TeraFn, Result, Value};
 
 use crate::global_fns::helpers::search_for_file;
